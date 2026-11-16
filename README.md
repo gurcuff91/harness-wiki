@@ -34,6 +34,10 @@ wiki's own `AGENTS.md` and maintains the wiki by its rules. Three operations:
 
 ## Install
 
+Download the archive for your platform from the
+[releases page](https://github.com/gurcuff91/harness-wiki/releases) (macOS, Linux and Windows;
+`SHA256SUMS.txt` is alongside), or build it:
+
 ```bash
 make install        # builds and copies to ~/go/bin/harness-wiki
 ```

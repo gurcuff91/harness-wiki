@@ -6,8 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Initial release
 
-LLM-maintained wikis over HTTP, ported out of harness (where it was developed as v0.98.0 and then
-moved here to keep harness small), on top of the harness SDK.
+LLM-maintained wikis over HTTP, built on the [harness](https://github.com/gurcuff91/harness) SDK. It
+started as a feature of harness itself and was moved into its own project to keep harness small; the
+original design and plan are kept in `docs/history/`.
 
 - **Several wikis** under `./harness-wiki/<slug>/` in the directory the server starts in, each with its
   own manifest, schema (`AGENTS.md`), immutable `raw/` and `wiki/` pages.
@@ -26,5 +27,7 @@ moved here to keep harness small), on top of the harness SDK.
   variables); a request can carry its own `"model"`.
 - A typed Go client, an OpenAPI document at `/api/docs/openapi.json`, and a graceful shutdown that
   cancels running maintainers and releases every lock.
+- Prebuilt binaries for macOS (amd64, arm64), Linux (amd64, arm64) and Windows (amd64), published with a
+  `SHA256SUMS.txt` by the release workflow; all are static (`CGO_ENABLED=0`).
 - Verified with unit tests per package, an end-to-end run of the real binary (two processes sharing
   one directory) and mutation tests; builds and vets for linux, darwin and windows.
