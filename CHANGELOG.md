@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-11-17
+
+### Changed — harness v0.102.0 renames the MCP timeouts, and a long query now needs them raised
+harness **v0.102.0** renamed its two per-server MCP timeouts: **`timeout` is now the timeout of ONE tool call** (default 300 000 ms = 5 minutes) and **`connection_timeout` is the connect budget** (default 30 000 ms = 30 seconds). Before it, the names were the other way round (`timeout` = connecting, `call_timeout` = the call), and there is **no alias** for the old key.
+
+That matters here because a `WikiQuery` may legitimately run up to **30 minutes** (the server's own cap; the tool's default is 5 minutes). With harness's new 5-minute default, **a query longer than 5 minutes is cut off by the client**. Raise it on the server's entry when that is expected:
+
+```json
+"mcp": { "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 1800000 } }
+```
+
+`timeout` is in **milliseconds** and it is the *client's* limit; the server's own cap is `service.MaxTimeout` (30 min) and the tool's `timeout` argument is in **seconds** (default 300, at most 1800). The README now says all of this, and keeps the advice for harness ≤ 0.101.x.
+
+### Added — AGENTS.md, a guide for coding agents working on this repository
+It documents what the two `AGENTS.md` files are (this one, and the one **per wiki** that the maintainer generates and owns), the layer order (`api`/`mcpserver` → `service` → `maintainer` → `wiki`), the contracts that are easy to break (the per-wiki lock, the `.pending` marker, the manifest as the only source of truth, the ingest's all-or-nothing rule, the typed errors that carry the HTTP status), the release flow, and the anti-patterns: no model call in `wiki/`, no business rules in `api/` or `mcpserver/`, no matching on an error's wording, no router dependency for six routes, no session or SSE in `/mcp`.
+
+### Changed — built on the harness SDK v0.102.0 (was v0.98.0)
+The SDK's public surface used by this project (`agent`, `agent/resources`, `agent/store`, `agent/tools`) is unchanged by v0.100.0 → v0.102.0; the releases in between touched the CLI, the TUI and the MCP client's own settings. No server behaviour changed.
+
 ## [0.2.1] - 2026-11-16
 
 ### Changed — harness v0.98: the MCP client no longer needs a `timeout`

@@ -130,14 +130,23 @@ service as the REST API, so the rules are identical: ingest and lint return at o
 background (the model follows them with `WikiList`), queries take no lock, a busy wiki is refused. A
 failed call comes back as a tool result with `isError`, which the model reads and recovers from.
 
-> **Timeouts — use harness v0.98 or later.** harness's MCP client has two per-server settings, both in
-> milliseconds: `timeout` bounds *connecting* (default 5000) and `call_timeout` bounds *one tool call*
-> (default 1 800 000 = 30 minutes, which covers a query's own 30-minute maximum). The defaults are right
-> for this server; there is nothing to configure.
+> **Timeouts.** harness's MCP client has two per-server settings, both in milliseconds. **Since harness
+> v0.102.0**: `timeout` bounds *one tool call* (default 300 000 = 5 minutes) and `connection_timeout`
+> bounds *connecting* (default 30 000 = 30 seconds). **Before v0.102.0** the names were the other way
+> round (`timeout` = connecting, `call_timeout` = the call), and there is no alias for the old key.
 >
-> **Earlier harness versions (≤ 0.97.x)** applied the connect `timeout` to *every* call, so a
+> **A query can legitimately run up to 30 minutes** (the server's own cap; the tool's default is
+> 5 minutes), so **with harness v0.102.0 a query longer than 5 minutes is cut off by the client** —
+> raise it on the server's entry if you expect that:
+>
+> ```json
+> "mcp": { "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 1800000 } }
+> ```
+>
+> **Earlier harness versions (≤ 0.101.x)** applied the connect budget to *every* call, so a
 > `WikiQuery` or `WikiCreate` (which has a model adapt the new wiki's rules) was cut off after 5 seconds.
-> There, set `"timeout": 600000` (10 minutes, or more if you ask a query for longer) — or, better, upgrade.
+> On those, set `"timeout": 600000` (10 minutes, or more if you ask a query for longer) — or, better,
+> upgrade.
 
 The endpoint is stateless (no `Mcp-Session-Id`, no streaming): one JSON-RPC message per `POST`, one JSON
 reply, `202` for a notification, `405` for `GET`/`DELETE`. It implements `initialize`, `ping`,

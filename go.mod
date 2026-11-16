@@ -4,7 +4,7 @@ go 1.25.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/gurcuff91/harness v0.98.0
+	github.com/gurcuff91/harness v0.102.0
 )
 
 require (
