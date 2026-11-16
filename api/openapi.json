@@ -1,11 +1,33 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "harness-wiki",
+    "title": "harness-wiki API",
     "version": "__VERSION__",
     "description": "HTTP API for LLM-maintained wikis (the 'LLM Wiki' pattern): persistent, interlinked markdown knowledge bases that a model builds and keeps current from the sources you ingest. Each wiki is a folder ./harness-wiki/<slug>/ in the directory the server was started in. Ingest and lint run in the BACKGROUND (202); follow them with GET /api/wiki and the wiki's status. The API has no authentication: whoever can reach the port can make the server copy any file it can read into a wiki (sources are paths ON THE SERVER) and can spend the configured model's tokens \u2014 keep it on 127.0.0.1 unless the network is trusted."
   },
   "paths": {
+    "/api/server": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Server info",
+        "description": "Returns the harness-wiki version and process metadata. Also the liveness probe: it does no wiki or model work, so a server that cannot answer it is not going to complete anything heavier either.",
+        "operationId": "getServerInfo",
+        "responses": {
+          "200": {
+            "description": "Server info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/wiki": {
       "get": {
         "tags": [
@@ -368,32 +390,6 @@
           }
         }
       }
-    },
-    "/api/health": {
-      "get": {
-        "tags": [
-          "server"
-        ],
-        "summary": "Liveness",
-        "operationId": "health",
-        "responses": {
-          "200": {
-            "description": "The server is up",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -610,7 +606,54 @@
             }
           }
         }
+      },
+      "ServerInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "harness-wiki"
+          },
+          "version": {
+            "type": "string",
+            "example": "v0.1.0"
+          },
+          "url": {
+            "type": "string",
+            "example": "http://127.0.0.1:8787"
+          },
+          "cwd": {
+            "type": "string",
+            "example": "/Users/gustavo/wikis",
+            "description": "The directory the server was started in \u2014 where ./harness-wiki/ lives"
+          },
+          "pid": {
+            "type": "integer",
+            "example": 92807
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-16T00:22:16Z"
+          }
+        }
       }
     }
-  }
+  },
+  "servers": [
+    {
+      "url": "http://__ADDR__",
+      "description": "This server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "wiki",
+      "description": "LLM-maintained wikis: create, list, delete, ingest sources, query and lint. Ingest and lint run in the background (202) and are followed through GET /api/wiki and each wiki's status"
+    },
+    {
+      "name": "server",
+      "description": "Server metadata"
+    }
+  ]
 }

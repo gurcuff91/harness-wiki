@@ -73,8 +73,9 @@ used. Any request can override it with a `"model"` field.
 | `POST /api/wiki/{slug}/ingest` | ingest sources → `202` |
 | `POST /api/wiki/{slug}/lint` | health-check and repair → `202` |
 | `POST /api/wiki/{slug}/query` | ask a question |
+| `GET /api/docs` | the API reference page (Scalar) |
 | `GET /api/docs/openapi.json` | the OpenAPI document |
-| `GET /api/health` | liveness |
+| `GET /api/server` | server info — name, version, url, cwd, pid, start time; also the liveness probe |
 
 ```bash
 curl -X POST localhost:8787/api/wiki -d '{"slug":"chrysler-sgw","description":"Research on the Chrysler SGW"}'

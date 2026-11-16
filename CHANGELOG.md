@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-11-16
+
+### Changed — the API's documentation endpoints now match harness's
+
+0.1.0 served only the OpenAPI document, and probed liveness through a `GET /api/health` that harness
+does not have. They now follow harness's API:
+
+- **`GET /api/docs`** serves the API reference page — the same Scalar UI harness serves, rendering this
+  server's own document. (It loads the Scalar bundle from a CDN, as harness's page does.)
+- **`GET /api/docs/openapi.json`** now names the server it is served from: its `servers` entry is the
+  address the request arrived on, so it is right behind any `--host`/`--port`, `--host 0.0.0.0`
+  included. The document is titled "harness-wiki API" and tagged `wiki` / `server`.
+- **`GET /api/server`** replaces `GET /api/health`. It has harness's shape — `name`, `version`, `url`,
+  `cwd`, `pid`, `started_at` — and is the liveness probe, as it is in harness: it touches no wiki and no
+  model. **`/api/health` is gone** (it answers `404`); anything that probed it should probe
+  `/api/server`.
+- Tests pin the three routes, the page's content, the filled-in version and address, and that the
+  endpoint reports the real process; each fails when the behaviour is removed.
+
 ## [0.1.0] - 2026-11-15
 
 ### Initial release

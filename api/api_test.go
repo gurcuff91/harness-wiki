@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gurcuff91/harness-wiki/internal/version"
 	"github.com/gurcuff91/harness-wiki/maintainer"
 	"github.com/gurcuff91/harness-wiki/service"
 	"github.com/gurcuff91/harness-wiki/wiki"
@@ -524,8 +525,8 @@ func TestRoutesAreExactlyTheDocumentedOnes(t *testing.T) {
 			t.Errorf("%s %s = %d, want %d", c.method, c.path, code, c.want)
 		}
 	}
-	if code, m, _ := e.do("GET", "/api/health", ""); code != 200 || m["status"] != "ok" {
-		t.Errorf("health: %d %v", code, m)
+	if code, _, _ := e.do("GET", "/api/health", ""); code != 404 {
+		t.Errorf("/api/health = %d: harness has no such endpoint, GET /api/server is the probe", code)
 	}
 }
 
@@ -568,7 +569,19 @@ func TestOpenAPIIsServedAndMatchesTheRoutes(t *testing.T) {
 		"/api/wiki/{slug}/ingest": {"post": {"202", "400", "404", "409", "413"}},
 		"/api/wiki/{slug}/lint":   {"post": {"202", "400", "404", "409"}},
 		"/api/wiki/{slug}/query":  {"post": {"200", "400", "404", "504"}}, // no 409: a query takes no lock
-		"/api/health":             {"get": {"200"}},
+		"/api/server":             {"get": {"200"}},
+	}
+	// the document describes the server it is served from, and is titled for this project
+	var head struct {
+		Info    struct{ Title string }
+		Servers []struct{ URL string }
+	}
+	json.Unmarshal([]byte(raw), &head)
+	if head.Info.Title != "harness-wiki API" {
+		t.Errorf("title = %q, want harness-wiki API", head.Info.Title)
+	}
+	if len(head.Servers) != 1 || head.Servers[0].URL != "http://"+strings.TrimPrefix(e.srv.URL, "http://") {
+		t.Errorf("servers = %+v, want the address the request arrived on (%s)", head.Servers, e.srv.URL)
 	}
 	for path, methods := range want {
 		for method, codes := range methods {
@@ -602,7 +615,83 @@ func TestOpenAPIIsServedAndMatchesTheRoutes(t *testing.T) {
 			t.Errorf("%s does not document the optional per-request model", s)
 		}
 	}
-	if !strings.Contains(OpenAPI("v9.9.9"), `"version": "v9.9.9"`) {
-		t.Error("OpenAPI(version) did not fill the version")
+	doc := OpenAPI("v9.9.9", "example.test:1234")
+	if !strings.Contains(doc, `"version": "v9.9.9"`) || !strings.Contains(doc, `"url": "http://example.test:1234"`) {
+		t.Error("OpenAPI(version, addr) did not fill the version and the server address")
+	}
+	if strings.Contains(doc, "__VERSION__") || strings.Contains(doc, "__ADDR__") {
+		t.Error("a placeholder was left in the document")
+	}
+}
+
+// The API reference page is the same Scalar UI harness serves: HTML that loads the document from
+// this server (same origin, so nothing to configure).
+func TestTheDocsPageIsTheScalarReferenceOverThisServersDocument(t *testing.T) {
+	e := newEnv(t)
+	resp, err := http.Get(e.srv.URL + "/api/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("GET /api/docs = %d %q, want 200 text/html", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	for _, want := range []string{"harness-wiki API Reference", `data-url="/api/docs/openapi.json"`, "@scalar/api-reference"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the docs page lacks %q", want)
+		}
+	}
+	// the document it points at is served, as JSON
+	resp2, err := http.Get(e.srv.URL + "/api/docs/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 || !strings.HasPrefix(resp2.Header.Get("Content-Type"), "application/json") {
+		t.Errorf("GET /api/docs/openapi.json = %d %q, want 200 application/json", resp2.StatusCode, resp2.Header.Get("Content-Type"))
+	}
+	// only GET
+	req, _ := http.NewRequest("POST", e.srv.URL+"/api/docs", nil)
+	if r, err := http.DefaultClient.Do(req); err == nil {
+		r.Body.Close()
+		if r.StatusCode != 405 {
+			t.Errorf("POST /api/docs = %d, want 405", r.StatusCode)
+		}
+	}
+}
+
+// GET /api/server has harness's shape: name, version, url, cwd, pid, started_at. It is the
+// liveness probe, so it must answer without touching a wiki or a model.
+func TestServerInfoHasHarnessesShapeAndTouchesNothing(t *testing.T) {
+	e := newEnv(t)
+	code, m, raw := e.do("GET", "/api/server", "")
+	if code != 200 {
+		t.Fatalf("GET /api/server = %d %s", code, raw)
+	}
+	for _, f := range []string{"name", "version", "url", "cwd", "pid", "started_at"} {
+		if _, ok := m[f]; !ok {
+			t.Errorf("server info lacks %q: %s", f, raw)
+		}
+	}
+	// the version is the binary's own (the one the Makefile injects) — the same value the OpenAPI
+	// document carries, so a client can tell which server it is talking to
+	if m["version"] != version.Version {
+		t.Errorf("version = %v, want the binary's %q", m["version"], version.Version)
+	}
+	if m["name"] != "harness-wiki" || m["url"] != e.srv.URL {
+		t.Errorf("name/url = %v / %v, want harness-wiki and %s", m["name"], m["url"], e.srv.URL)
+	}
+	if pid, _ := m["pid"].(float64); int(pid) != os.Getpid() {
+		t.Errorf("pid = %v, want this process's %d", m["pid"], os.Getpid())
+	}
+	if cwd, _ := os.Getwd(); m["cwd"] != cwd {
+		t.Errorf("cwd = %v, want %s", m["cwd"], cwd)
+	}
+	if _, err := time.Parse(time.RFC3339, fmt.Sprint(m["started_at"])); err != nil {
+		t.Errorf("started_at = %v, want RFC 3339", m["started_at"])
+	}
+	if e.ai.count() != 0 || exists(e.root) {
+		t.Error("GET /api/server ran the maintainer or created the store root")
 	}
 }

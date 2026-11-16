@@ -1,5 +1,5 @@
 BIN     = harness-wiki
-VERSION = v0.1.0
+VERSION = v0.1.1
 LDFLAGS = -s -w -X github.com/gurcuff91/harness-wiki/internal/version.Version=$(VERSION)
 
 .PHONY: build install test vet clean release release-push

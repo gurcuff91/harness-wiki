@@ -20,8 +20,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/gurcuff91/harness-wiki/internal/version"
 	"github.com/gurcuff91/harness-wiki/service"
 	"github.com/gurcuff91/harness-wiki/wiki"
 )
@@ -44,8 +46,9 @@ func New(svc *service.Service) http.Handler {
 	mux.HandleFunc("POST /api/wiki/{slug}/ingest", h.ingest)
 	mux.HandleFunc("POST /api/wiki/{slug}/lint", h.lint)
 	mux.HandleFunc("POST /api/wiki/{slug}/query", h.query)
+	mux.HandleFunc("GET /api/docs", h.docs)
 	mux.HandleFunc("GET /api/docs/openapi.json", h.openapi)
-	mux.HandleFunc("GET /api/health", h.health)
+	mux.HandleFunc("GET /api/server", h.serverInfo)
 	return mux
 }
 
@@ -80,9 +83,28 @@ type queryRequest struct {
 
 // ── handlers ────────────────────────────────────────────────────────────────
 
-func (h *handler) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+// serverInfo is GET /api/server, shaped like harness's own: the name, the version, the URL the
+// request arrived on, and the process's cwd, pid and start time. It is also the liveness probe —
+// it touches no wiki and no model.
+func (h *handler) serverInfo(w http.ResponseWriter, r *http.Request) {
+	cwd, _ := os.Getwd()
+	writeJSON(w, http.StatusOK, serverInfo{
+		Name: "harness-wiki", Version: version.Version, URL: "http://" + r.Host,
+		CWD: cwd, PID: os.Getpid(), StartedAt: startedAt,
+	})
 }
+
+type serverInfo struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	URL       string `json:"url"`
+	CWD       string `json:"cwd"`
+	PID       int    `json:"pid"`
+	StartedAt string `json:"started_at"`
+}
+
+// startedAt is when this process started, fixed once.
+var startedAt = time.Now().UTC().Format(time.RFC3339)
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	list, err := h.svc.List()
