@@ -1,0 +1,616 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "harness-wiki",
+    "version": "__VERSION__",
+    "description": "HTTP API for LLM-maintained wikis (the 'LLM Wiki' pattern): persistent, interlinked markdown knowledge bases that a model builds and keeps current from the sources you ingest. Each wiki is a folder ./harness-wiki/<slug>/ in the directory the server was started in. Ingest and lint run in the BACKGROUND (202); follow them with GET /api/wiki and the wiki's status. The API has no authentication: whoever can reach the port can make the server copy any file it can read into a wiki (sources are paths ON THE SERVER) and can spend the configured model's tokens \u2014 keep it on 127.0.0.1 unless the network is trusted."
+  },
+  "paths": {
+    "/api/wiki": {
+      "get": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "List wikis",
+        "operationId": "listWikis",
+        "description": "Every wiki with its slug, description and live status: 'ready', 'busy' (an ingest, lint, create or delete is running: 'op' and 'since' say which and since when; queries never make a wiki busy) or 'incomplete' (an ingest or lint was interrupted and the wiki may be half updated; run a lint). The status is computed on every call, never stored.",
+        "responses": {
+          "200": {
+            "description": "The wikis, sorted by slug (an empty array when there are none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WikiInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "Create a wiki",
+        "operationId": "createWiki",
+        "description": "Creates the wiki (folders, a base AGENTS.md schema, the index and log) and then has its maintainer adapt the schema to the description. If that adaptation fails the wiki still exists and is usable, so the answer is still 201. Nothing is created on disk until the first wiki.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWikiRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid slug, or a missing slug or description",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A wiki with that slug already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wiki/{slug}": {
+      "delete": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "Delete a wiki",
+        "operationId": "deleteWiki",
+        "description": "Removes the wiki ENTIRELY: its sources, its pages and its schema. It cannot be undone. A wiki an ingest, a lint or another delete is working on is busy and is refused.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such wiki",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The wiki is busy. 'details' carries slug, op, since and elapsed_seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wiki/{slug}/ingest": {
+      "post": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "Ingest sources into a wiki (background)",
+        "operationId": "ingestWiki",
+        "description": "Copies the sources, unchanged, into the wiki's raw/ folder and starts its maintainer, which integrates them into the pages. It answers 202 as soon as the sources are copied; the maintainer works in the BACKGROUND and the wiki is 'busy' until it finishes. 'sources' are paths ON THE SERVER: a file, a glob ('**' matches across directories) or a directory, which is copied with the directory included; symbolic links found inside a directory are skipped and reported. 'files' are inline sources, each stored as a file ('name' may be a path such as 'ctx/data.md'). The copy is all or nothing: a file that already exists in raw/ with DIFFERENT content refuses the whole ingest with 409 and the list of clashes, while an identical one is reported as already ingested.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestWikiRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted: the sources are in raw/ and the maintainer is working",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid slug or body, nothing to ingest, a source that does not exist or matches nothing, an unsafe file name, or a limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such wiki",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The wiki is busy (details: slug, op, since, elapsed_seconds), or a file already exists in raw/ with different content (details.conflicts lists them; nothing was copied)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wiki/{slug}/lint": {
+      "post": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "Lint a wiki (background)",
+        "operationId": "lintWiki",
+        "description": "Has the maintainer health-check the wiki and repair it: contradictions, stale claims, orphan pages, concepts without a page, missing cross-references, broken links. 202 at once; the wiki is 'busy' until it finishes. Also the way to repair an 'incomplete' wiki. The body is optional.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LintWikiRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted: the maintainer is working",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid slug or body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such wiki",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The wiki is busy. 'details' carries slug, op, since and elapsed_seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wiki/{slug}/query": {
+      "post": {
+        "tags": [
+          "wiki"
+        ],
+        "summary": "Ask a wiki a question",
+        "operationId": "queryWiki",
+        "description": "The wiki's maintainer searches its index, reads the relevant pages and answers from them; a valuable answer may be filed back into the wiki as a new page. It is synchronous: the connection stays open until the answer arrives or the timeout passes. A query takes NO lock on the wiki, so any number can run at once and it is answered even while an ingest or a lint is working (the maintainer may then see pages that are still being updated); it is never refused as busy.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryWikiRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WikiAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid slug or body, or a missing or blank question",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such wiki",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The maintainer did not answer within the timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Liveness",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "The server is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WikiInfo": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Also the wiki's folder name: 1-64 lowercase letters, digits and hyphens"
+          },
+          "description": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "busy",
+              "incomplete"
+            ]
+          },
+          "op": {
+            "type": "string",
+            "description": "What is running (busy) or what was interrupted (incomplete). Omitted when ready"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When that operation started. Omitted when ready"
+          }
+        }
+      },
+      "CreateWikiRequest": {
+        "type": "object",
+        "required": [
+          "slug",
+          "description"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "1-64 lowercase letters, digits and hyphens, not starting or ending with a hyphen, and not a reserved Windows name (con, nul, com1...)"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the wiki is about; its maintainer adapts the wiki's schema to it"
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional 'provider/model' for this one run. Omitted, the server's --model is used, and without one the first model any active provider offers."
+          }
+        }
+      },
+      "IngestWikiRequest": {
+        "type": "object",
+        "description": "At least one of sources and files",
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths on the SERVER: a file, a glob ('**' across directories) or a directory (copied whole, directory included)"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WikiFile"
+            },
+            "description": "Inline sources, each stored as a file in raw/"
+          },
+          "guidance": {
+            "type": "string",
+            "description": "Optional: what to focus on; does not change the wiki's rules"
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional 'provider/model' for this one run. Omitted, the server's --model is used, and without one the first model any active provider offers."
+          }
+        }
+      },
+      "WikiFile": {
+        "type": "object",
+        "required": [
+          "name",
+          "content"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Relative path under raw/, with '/' or '\\\\' separators; may create folders ('ctx/data.md'). No '..', no absolute paths, no drive letters, no Windows-reserved names or characters"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "LintWikiRequest": {
+        "type": "object",
+        "properties": {
+          "guidance": {
+            "type": "string",
+            "description": "Optional: what to focus on"
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional 'provider/model' for this one run. Omitted, the server's --model is used, and without one the first model any active provider offers."
+          }
+        }
+      },
+      "QueryWikiRequest": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Seconds to wait for the answer (default 300; the server caps it at 1800)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional 'provider/model' for this one run. Omitted, the server's --model is used, and without one the first model any active provider offers."
+          }
+        }
+      },
+      "WikiAnswer": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          }
+        }
+      },
+      "WikiAccepted": {
+        "type": "object",
+        "description": "A background job was started. There is no result report: follow the job with GET /api/wiki and the wiki's status",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "busy",
+              "incomplete"
+            ],
+            "description": "Normally 'busy' at this point"
+          },
+          "op": {
+            "type": "string"
+          },
+          "ingested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ingest only: files copied now, relative to raw/"
+          },
+          "already_ingested": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ingest only: files that already existed in raw/ with identical content, left alone"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ingest only: source files not copied, each with the reason (for example a symbolic link inside a directory)"
+          }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

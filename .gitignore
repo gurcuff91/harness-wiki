@@ -1,0 +1,5 @@
+/harness-wiki
+/dist/
+# the wiki data lives in ./harness-wiki/ next to wherever the server was started — never commit it
+/harness-wiki/
+*.test
