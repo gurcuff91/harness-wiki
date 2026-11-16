@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-11-16
+
+### Added — `POST /mcp`: the wikis as MCP tools
+
+A harness (or any MCP client) can now use the wikis directly, by pointing at one URL:
+
+```json
+"mcp": { "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 600000 } }
+```
+
+- **Six tools** — `WikiList`, `WikiCreate`, `WikiDelete`, `WikiIngest`, `WikiQuery`, `WikiLint` — each a
+  thin adapter over the same service the REST API uses, so every rule is shared: ingest and lint run in
+  the background and are followed with `WikiList`, queries take no lock, a busy wiki is refused, the
+  ingest is all-or-nothing. A failed call is a tool result with `isError`, which the model can read and
+  recover from, not a JSON-RPC error.
+- **MCP Streamable HTTP, stateless.** One JSON-RPC message (or a batch) per `POST`, answered with one
+  JSON reply; a notification gets `202` and no body; `GET`/`DELETE` are `405`. No session id and no SSE.
+  Methods: `initialize` (protocol `2024-11-05`, the revision harness's client speaks), `ping`,
+  `tools/list`, `tools/call`. A query stops when the client hangs up.
+- **Set `timeout` on the client.** harness's MCP client applies the server's `timeout` (default 5 s) to
+  every call, so a slow `WikiQuery`/`WikiCreate` is cut off unless it is raised — the README says so
+  prominently. It is a client setting; the server cannot work around it.
+- `/mcp` has the REST API's trust model: no authentication. It is documented in the OpenAPI document
+  and the README.
+- Tested against the real client: the suite drives the server with harness's own `mcp` package
+  (`NewHTTPTransport` / `Client`), plus raw-protocol, concurrency (five queries at once during an
+  ingest) and shutdown tests; 51 mutations of the new code, each killed.
+
 ## [0.1.1] - 2026-11-16
 
 ### Changed — the API's documentation endpoints now match harness's

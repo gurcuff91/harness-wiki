@@ -519,6 +519,9 @@ func TestRoutesAreExactlyTheDocumentedOnes(t *testing.T) {
 		{"GET", "/api/wiki/w/query", 405},
 		{"DELETE", "/api/wiki", 405},
 		{"GET", "/api/nothing", 404},
+		{"GET", "/mcp", 405},
+		{"DELETE", "/mcp", 405},
+		{"GET", "/mcp/", 404},
 		{"GET", "/", 404},
 	} {
 		if code, _, _ := e.do(c.method, c.path, ""); code != c.want {
@@ -570,6 +573,7 @@ func TestOpenAPIIsServedAndMatchesTheRoutes(t *testing.T) {
 		"/api/wiki/{slug}/lint":   {"post": {"202", "400", "404", "409"}},
 		"/api/wiki/{slug}/query":  {"post": {"200", "400", "404", "504"}}, // no 409: a query takes no lock
 		"/api/server":             {"get": {"200"}},
+		"/mcp":                    {"post": {"200", "202", "400", "405", "413"}},
 	}
 	// the document describes the server it is served from, and is titled for this project
 	var head struct {
@@ -693,5 +697,50 @@ func TestServerInfoHasHarnessesShapeAndTouchesNothing(t *testing.T) {
 	}
 	if e.ai.count() != 0 || exists(e.root) {
 		t.Error("GET /api/server ran the maintainer or created the store root")
+	}
+}
+
+// /mcp is mounted on the same server and the same service as the REST API: a wiki made through one
+// is seen through the other.
+func TestMCPIsMountedOverTheSameServiceAsTheRESTAPI(t *testing.T) {
+	e := newEnv(t)
+	e.create("rest-made")
+	resp, err := http.Post(e.srv.URL+"/mcp", "application/json",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"WikiList"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(raw), `rest-made`) {
+		t.Fatalf("POST /mcp WikiList = %d %s, want 200 and the wiki the REST API created", resp.StatusCode, raw)
+	}
+	// and the other way round
+	resp2, err := http.Post(e.srv.URL+"/mcp", "application/json",
+		strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"WikiCreate","arguments":{"slug":"mcp-made","description":"d"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if code, _, raw := e.do("GET", "/api/wiki", ""); code != 200 || !strings.Contains(raw, "mcp-made") {
+		t.Errorf("GET /api/wiki = %d %s, want the wiki the MCP tool created", code, raw)
+	}
+}
+
+// /mcp must run on THE service the process built, not a copy: its background jobs have to be
+// counted by the service's own Close, or a shutdown would not wait for them.
+func TestMCPBackgroundJobsAreCountedByTheServicesClose(t *testing.T) {
+	e := newEnv(t)
+	e.create("w")
+	e.svc.Close(time.Second)
+	resp, err := http.Post(e.srv.URL+"/mcp", "application/json", strings.NewReader(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"WikiLint","arguments":{"slug":"w"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(raw), "shutting down") {
+		t.Fatalf("a lint through /mcp after Close: %s, want it refused as the server is shutting down", raw)
 	}
 }

@@ -73,6 +73,7 @@ used. Any request can override it with a `"model"` field.
 | `POST /api/wiki/{slug}/ingest` | ingest sources → `202` |
 | `POST /api/wiki/{slug}/lint` | health-check and repair → `202` |
 | `POST /api/wiki/{slug}/query` | ask a question |
+| `POST /mcp` | the same operations as MCP tools — see [Use it from harness](#use-it-from-harness-mcp) |
 | `GET /api/docs` | the API reference page (Scalar) |
 | `GET /api/docs/openapi.json` | the OpenAPI document |
 | `GET /api/server` | server info — name, version, url, cwd, pid, start time; also the liveness probe |
@@ -109,11 +110,45 @@ Errors are `{"error": {"message": "...", "details": {...}}}` with `400` invalid 
 `404` no such wiki, `409` busy / already exists / clashes in `raw/`, `413` body over 64 MB, `504` a
 query timed out.
 
+## Use it from harness (MCP)
+
+`POST /mcp` serves the six operations as [MCP](https://modelcontextprotocol.io) tools — `WikiList`,
+`WikiCreate`, `WikiDelete`, `WikiIngest`, `WikiQuery`, `WikiLint` — over the Streamable HTTP
+transport, so a harness (or any MCP client) uses the wikis by pointing at one URL. In the harness's
+`~/.harness/settings.json`:
+
+```json
+{
+  "mcp": {
+    "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 600000 }
+  }
+}
+```
+
+The tools then appear as `mcp__wiki__WikiQuery`, `mcp__wiki__WikiIngest`, and so on. They call the same
+service as the REST API, so the rules are identical: ingest and lint return at once and run in the
+background (the model follows them with `WikiList`), queries take no lock, a busy wiki is refused. A
+failed call comes back as a tool result with `isError`, which the model reads and recovers from.
+
+> **Set `timeout`.** harness's MCP client applies the server's `timeout` to *every* call, and its
+> default is **5000 ms**. A `WikiQuery` or a `WikiCreate` (which has a model adapt the new wiki's rules)
+> takes tens of seconds to minutes, so without a larger value harness cuts the call off long before it
+> finishes. `600000` (10 minutes) is a sensible floor; a query's own `timeout` argument can ask for up
+> to 30 minutes, so raise it if you use that. This is a client setting — the server cannot fix it.
+
+The endpoint is stateless (no `Mcp-Session-Id`, no streaming): one JSON-RPC message per `POST`, one JSON
+reply, `202` for a notification, `405` for `GET`/`DELETE`. It implements `initialize`, `ping`,
+`tools/list` and `tools/call`.
+
+**It has the same trust as the REST API — none.** Anyone who can reach the port can call all six tools,
+including `WikiDelete` and `WikiIngest` from paths on the server. Keep it on `127.0.0.1` (the default)
+unless the network is trusted.
+
 ## Security
 
 **The API has no authentication.** By default it listens on `127.0.0.1` only. `--host 0.0.0.0`
 publishes it, and the server then prints a warning: anyone who can reach the port can read and change
-the wikis, make the server copy **any file it can read** into a wiki (sources are paths on the
+the wikis (through `/mcp` too), make the server copy **any file it can read** into a wiki (sources are paths on the
 server), and spend the model's tokens. Put it behind something that authenticates before exposing it.
 
 The slug is `[a-z0-9-]` (1–64); inline file names are validated segment by segment (no `..`, absolute
@@ -138,5 +173,6 @@ if client.IsWikiBusy(err) { /* another operation holds the wiki */ }
 | `wiki` | the store: folders, the lock, the all-or-nothing ingest. Pure persistence — never calls a model, and a test enforces that it imports nothing from harness or this module |
 | `maintainer` | the AI side: a harness sub-agent rooted at the wiki's folder |
 | `service` | the rules of each operation, combining the two |
+| `mcpserver` | the MCP endpoint: six tools over the service, no rules of its own |
 | `api` | HTTP, and nothing but HTTP |
 | `client` | the typed Go client (no harness dependency) |

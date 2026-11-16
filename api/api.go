@@ -9,6 +9,8 @@
 //	POST   /api/wiki/{slug}/lint      health-check and repair, in the background  → 202
 //	POST   /api/wiki/{slug}/query     ask a question, synchronously (no lock)     → 200
 //
+// POST /mcp serves the same operations as MCP tools (package mcpserver).
+//
 // A background job is followed through GET /api/wiki and the wiki's status. Errors use one shape,
 // {"error": {"message": "...", "details": {...}}}, and the status code comes from what the error
 // IS (the wiki package's typed errors), never from its wording.
@@ -24,6 +26,7 @@ import (
 	"time"
 
 	"github.com/gurcuff91/harness-wiki/internal/version"
+	"github.com/gurcuff91/harness-wiki/mcpserver"
 	"github.com/gurcuff91/harness-wiki/service"
 	"github.com/gurcuff91/harness-wiki/wiki"
 )
@@ -49,6 +52,9 @@ func New(svc *service.Service) http.Handler {
 	mux.HandleFunc("GET /api/docs", h.docs)
 	mux.HandleFunc("GET /api/docs/openapi.json", h.openapi)
 	mux.HandleFunc("GET /api/server", h.serverInfo)
+	// The same six operations as MCP tools, for a harness (or any MCP client) to use directly. No
+	// method in the pattern: the handler itself answers anything but POST with 405.
+	mux.Handle("/mcp", mcpserver.New(svc))
 	return mux
 }
 
