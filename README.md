@@ -120,7 +120,7 @@ transport, so a harness (or any MCP client) uses the wikis by pointing at one UR
 ```json
 {
   "mcp": {
-    "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 600000 }
+    "wiki": { "url": "http://127.0.0.1:8787/mcp" }
   }
 }
 ```
@@ -130,11 +130,14 @@ service as the REST API, so the rules are identical: ingest and lint return at o
 background (the model follows them with `WikiList`), queries take no lock, a busy wiki is refused. A
 failed call comes back as a tool result with `isError`, which the model reads and recovers from.
 
-> **Set `timeout`.** harness's MCP client applies the server's `timeout` to *every* call, and its
-> default is **5000 ms**. A `WikiQuery` or a `WikiCreate` (which has a model adapt the new wiki's rules)
-> takes tens of seconds to minutes, so without a larger value harness cuts the call off long before it
-> finishes. `600000` (10 minutes) is a sensible floor; a query's own `timeout` argument can ask for up
-> to 30 minutes, so raise it if you use that. This is a client setting — the server cannot fix it.
+> **Timeouts — use harness v0.98 or later.** harness's MCP client has two per-server settings, both in
+> milliseconds: `timeout` bounds *connecting* (default 5000) and `call_timeout` bounds *one tool call*
+> (default 1 800 000 = 30 minutes, which covers a query's own 30-minute maximum). The defaults are right
+> for this server; there is nothing to configure.
+>
+> **Earlier harness versions (≤ 0.97.x)** applied the connect `timeout` to *every* call, so a
+> `WikiQuery` or `WikiCreate` (which has a model adapt the new wiki's rules) was cut off after 5 seconds.
+> There, set `"timeout": 600000` (10 minutes, or more if you ask a query for longer) — or, better, upgrade.
 
 The endpoint is stateless (no `Mcp-Session-Id`, no streaming): one JSON-RPC message per `POST`, one JSON
 reply, `202` for a notification, `405` for `GET`/`DELETE`. It implements `initialize`, `ping`,

@@ -2,7 +2,7 @@
 // the "Streamable HTTP" transport — so a harness (or any MCP client) can use the wikis as tools by
 // pointing at one URL:
 //
-//	"mcp": { "wiki": { "url": "http://127.0.0.1:8787/mcp", "timeout": 600000 } }
+//	"mcp": { "wiki": { "url": "http://127.0.0.1:8787/mcp" } }
 //
 // It is a thin protocol layer over the same service the REST API uses, so the rules of every
 // operation — the lock, the all-or-nothing ingest, queries that take no lock — are the same and are

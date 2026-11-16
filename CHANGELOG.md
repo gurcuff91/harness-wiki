@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-11-16
+
+### Changed — harness v0.98: the MCP client no longer needs a `timeout`
+0.2.0 told users to set `"timeout": 600000` on the server's entry in harness's settings, because harness's
+MCP client (≤ 0.97.x) used that connect budget — 5 s by default — as the limit of *every* call, so a slow
+`WikiQuery` or `WikiCreate` was cut off. harness **v0.98.0** fixes it at the source: `timeout` is
+connect-only again, and a new `call_timeout` bounds one tool call, **30 minutes by default** — the same as
+a query's own maximum. So the entry is just `"wiki": { "url": "http://127.0.0.1:8787/mcp" }`.
+
+- README, the `/mcp` entry of the OpenAPI document and the package comment now show the plain entry and say
+  that harness ≥ 0.98 is what makes it work; for harness ≤ 0.97.x they keep the `"timeout": 600000` advice.
+- Built on the harness SDK **v0.98.0** (was 0.97.3). No server behaviour changed.
+- `go.mod`: `github.com/google/uuid` is marked as the direct dependency it already was (`wiki/lock.go`
+  imports it); `go mod tidy` fixed the stale `// indirect`.
+- Verified end to end with the real binaries: a 6-second query through `/mcp` from harness 0.97.3 failed at 5 s
+  with the client timeout; from harness 0.98.0, with no `timeout` configured, it returned the answer.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added — `POST /mcp`: the wikis as MCP tools
